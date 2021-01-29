@@ -16,15 +16,17 @@ For Piper.
 '''
 
 import time
+
+import board
+import adafruit_dht
 import RPi.GPIO as gpio
 
 #Parameters and settings
 #These will need to be changed to the appropriate values once the relevant
 #devices are properly attached
 #-----------------------------
-temperature_monitor_pin = 1     #Pin number for temperature probe
+dht_22_pin = 36                  #Pin number for DHT22 temperature/humidity probe
 temperature_control_pin = 2     #Pin number for temperature control mechanism
-humidity_monitor_pin = 3        #Pin number for humidity probe
 humidity_control_pin = 4        #Pin number for humidity control mechanism
 light_control_pin = 5           #Pin number for light control mechanism
 
@@ -37,6 +39,14 @@ sample_frequency = 60           #Frequency at which tank conditions are tested, 
 #-----------------------------
 
 check_elapsed_time = lambda t0: time.time() - t0
+
+numbering_convert = [None, None, board.D8, None, board.D9, None, board.D7,
+                     board.D15, None, board.D16, board.D0, board.D1, board.D2,
+                     None, board.D3, board.D4, None, board.D5, board.D12, None,
+                     board.D13, board.D6, board.D14, board.D10, None, board.D11,
+                     None, None, board.D21, None, board.D22, board.D26,
+                     board.D23, None, board.D24, board.D27, board.D25,
+                     board.D28, None, board.D29]
 
 class BinaryController:
     '''
@@ -109,6 +119,11 @@ class TemperatureMonitor:
 
 class HumidityMonitor:
     '''
+    ====================================
+    ### DEPRECATED ###
+    Replaced by adafruit_dht.DHT22 class
+    ====================================
+
     Helper class for interacting with humidity probe.
 
     Attributes:
@@ -136,16 +151,14 @@ if __name__ == '__main__':
     gpio.setmode(gpio.BOARD)
 
     #Initialize GPIO pins
-    gpio.setup(temperature_monitor_pin, gpio.IN)
     gpio.setup(temperature_control_pin, gpio.OUT)
     gpio.setup(humidity_monitor_pin, gpio.IN)
     gpio.setup(humidity_control_pin, gpio.OUT)
     gpio.setup(light_control_pin, gpio.OUT)
 
     #Initialize devices and set to their default states
-    temp_probe = TemperatureMonitor(temperature_monitor_pin)
+    dht22 =adafruit_dht.DHT22(numbering_convert[dht_22_pin])
     temp_control = BinaryController(temperature_control_pin)
-    humidity_probe = HumidityMonitor(humidity_monitor_pin)
     humidity_control = BinaryController(humidity_control_pin)
     light_control = BinaryController(light_control_pin)
 
@@ -161,8 +174,9 @@ if __name__ == '__main__':
             last_check = time.time()
 
             #Measure temperature and humidity
-            temperature = temp_probe.measure()
-            humidity = humidity_probe.measure()
+            temperature = dht22.temperature #read temperature in C
+            temperature = temperature * (9/5) + 32
+            humidity = dht22.humidity
 
             #Evaluate measured temperature and humidity
             #If measured value(s) outside of set range, make appropriate response
