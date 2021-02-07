@@ -19,13 +19,16 @@ import time
 
 import board
 import adafruit_dht
+from w1thermsensor import w1thermsensor
+
 import RPi.GPIO as gpio
 
 #Parameters and settings
 #These will need to be changed to the appropriate values once the relevant
 #devices are properly attached
 #-----------------------------
-dht_22_pin = 36                  #Pin number for DHT22 temperature/humidity probe
+dht_22_pin = 36                 #Pin number for DHT22 temperature/humidity probe
+DS18B20_pin = 7                 #Pin number for DS18B20 temperature probe
 temperature_control_pin = 2     #Pin number for temperature control mechanism
 humidity_control_pin = 4        #Pin number for humidity control mechanism
 light_control_pin = 5           #Pin number for light control mechanism
@@ -47,6 +50,9 @@ numbering_convert = [None, None, board.D8, None, board.D9, None, board.D7,
                      None, None, board.D21, None, board.D22, board.D26,
                      board.D23, None, board.D24, board.D27, board.D25,
                      board.D28, None, board.D29]
+
+celcius_to_farenheit = lambda c: c * (9/5) + 32
+farenheit_to_celcius = lambda f: (f - 32) * (5/9)
 
 class BinaryController:
     '''
@@ -157,7 +163,8 @@ if __name__ == '__main__':
     gpio.setup(light_control_pin, gpio.OUT)
 
     #Initialize devices and set to their default states
-    dht22 =adafruit_dht.DHT22(numbering_convert[dht_22_pin])
+    dht22 = adafruit_dht.DHT22(numbering_convert[dht_22_pin + 1])
+    ds18b20 = w1thermsensor()
     temp_control = BinaryController(temperature_control_pin)
     humidity_control = BinaryController(humidity_control_pin)
     light_control = BinaryController(light_control_pin)
@@ -173,9 +180,15 @@ if __name__ == '__main__':
             #Update sampling timer
             last_check = time.time()
 
-            #Measure temperature and humidity
-            temperature = dht22.temperature #read temperature in C
-            temperature = temperature * (9/5) + 32
+            #Measure ambient temperature using DHT22
+            ambient_temperature = dht22.temperature #read temperature in C
+            ambient_temperature = celcius_to_farenheit(ambient_temperature)
+
+            #Measure hot spot temperature using DS18B20
+            hotspot_temperature = ds18b20.get_temperature()
+            hotspot_temperature = celcius_to_farenheit(hotspot_temperature)
+
+            #Measure ambient humidity using DHT22
             humidity = dht22.humidity
 
             #Evaluate measured temperature and humidity
@@ -201,6 +214,8 @@ if __name__ == '__main__':
                     light_control.turnOn()
                 else:
                     light_control.turnOff()
+
+            print('Timestamp: %i\tHotspot Temperature: %f F\tAmbient Temperature: %i F\t Humidity: %f %%'%(time.time(), hotspot_temperature, ambient_temperature, humidity))
 
         else:
             #If sample frequency time has not elapsed, wait 1 second and check again
