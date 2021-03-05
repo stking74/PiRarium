@@ -19,7 +19,7 @@ import time
 
 import board
 import adafruit_dht
-from w1thermsensor import w1thermsensor
+# from w1thermsensor import w1thermsensor
 
 import RPi.GPIO as gpio
 
@@ -27,11 +27,11 @@ import RPi.GPIO as gpio
 #These will need to be changed to the appropriate values once the relevant
 #devices are properly attached
 #-----------------------------
-dht_22_pin = 36                 #Pin number for DHT22 temperature/humidity probe
-DS18B20_pin = 7                 #Pin number for DS18B20 temperature probe
-temperature_control_pin = 2     #Pin number for temperature control mechanism
-humidity_control_pin = 4        #Pin number for humidity control mechanism
-light_control_pin = 5           #Pin number for light control mechanism
+# dht_22_pin = 36                 #Pin number for DHT22 temperature/humidity probe
+# DS18B20_pin = 7                 #Pin number for DS18B20 temperature probe
+# temperature_control_pin = 2     #Pin number for temperature control mechanism
+# humidity_control_pin = 4        #Pin number for humidity control mechanism
+# light_control_pin = 5           #Pin number for light control mechanism
 
 min_temperature = 80            #Minimum temperature to be allowed by temperature controller, in degrees Farenheit
 max_temperature = 90            #Maximum temperature to be allowed by temperature controller, in degrees Farenheit
@@ -43,16 +43,71 @@ sample_frequency = 60           #Frequency at which tank conditions are tested, 
 
 check_elapsed_time = lambda t0: time.time() - t0
 
-numbering_convert = [None, None, board.D8, None, board.D9, None, board.D7,
-                     board.D15, None, board.D16, board.D0, board.D1, board.D2,
-                     None, board.D3, board.D4, None, board.D5, board.D12, None,
-                     board.D13, board.D6, board.D14, board.D10, None, board.D11,
-                     None, None, board.D21, None, board.D22, board.D26,
-                     board.D23, None, board.D24, board.D27, board.D25,
-                     board.D28, None, board.D29]
+numbering_convert = [None, None,
+                     board.D2, None,
+                     board.D3, None,
+                     board.D4, board.D14,
+                     None, board.D15,
+                     board.D17, board.D18,
+                     board.D27, None,
+                     board.D22, board.D23,
+                     None, board.D24,
+                     board.D10, None,
+                     board.D9, board.D25,
+                     board.D11, board.D8,
+                     None, board.D7,
+                     None, None,
+                     board.D5, None,
+                     board.D6, board.D12,
+                     board.D13, None,
+                     board.D19, board.D16,
+                     board.D26, board.D20,
+                     None, board.D21]
 
 celcius_to_farenheit = lambda c: c * (9/5) + 32
 farenheit_to_celcius = lambda f: (f - 32) * (5/9)
+
+def dht22_lownoise_measure(dht_device, n_samples=5, mode='both', error_handling=True, sample_rate=2):
+
+    def average(l):
+        return sum(l)/len(l)
+
+    if mode == 'temperature' or mode == 'both': temperature_measurements = []
+    if mode == 'humidity' or mode == 'both': humidity_measurements = []
+    successful_measurements = 0
+    while successful_measurements < n_samples:
+        try:
+
+            #Measure ambient temperature using DHT22
+            if temperature_measurements:
+                ambient_temperature = dht22.temperature #read temperature in C
+                ambient_temperature = celcius_to_farenheit(ambient_temperature)
+
+            #Measure ambient humidity using DHT22
+            if humidity_measurements:
+                humidity = dht22.humidity
+
+            if temperature_measurements: temperature_measurements.append(ambient_temperature)
+            if humidity_measurements: humidity_measurements.append(humidity)
+            successful_measurements += 1
+
+        except RuntimeError as error:
+            pass
+        except Exception as error:
+            dhtDevice.exit()
+            raise error
+
+        time.sleep(sample_rate)
+
+    if temperature_measurements: average_temperature = average(temeperature_measurements)
+    if humidity_measurements: humidity_measurements = average(humidity_measurements)
+
+    if mode == 'temperature':
+        return average_temperature
+    elif mode == 'humidity':
+        return average_humidity
+    elif mode == 'both':
+        return (average_temperature, average_humidity)
 
 class BinaryController:
     '''
@@ -154,17 +209,16 @@ class HumidityMonitor:
 
 if __name__ == '__main__':
     #Specify pin numbering system (either "BOARD" or "BCM")
-    gpio.setmode(gpio.BOARD)
+    #gpio.setmode(gpio.BOARD)
 
     #Initialize GPIO pins
     gpio.setup(temperature_control_pin, gpio.OUT)
-    gpio.setup(humidity_monitor_pin, gpio.IN)
     gpio.setup(humidity_control_pin, gpio.OUT)
     gpio.setup(light_control_pin, gpio.OUT)
 
     #Initialize devices and set to their default states
-    dht22 = adafruit_dht.DHT22(numbering_convert[dht_22_pin + 1])
-    ds18b20 = w1thermsensor()
+    dht22 = adafruit_dht.DHT22(board.D18)
+    # ds18b20 = w1thermsensor()
     temp_control = BinaryController(temperature_control_pin)
     humidity_control = BinaryController(humidity_control_pin)
     light_control = BinaryController(light_control_pin)
@@ -180,22 +234,21 @@ if __name__ == '__main__':
             #Update sampling timer
             last_check = time.time()
 
-            #Measure ambient temperature using DHT22
-            ambient_temperature = dht22.temperature #read temperature in C
-            ambient_temperature = celcius_to_farenheit(ambient_temperature)
+            #Measure ambient temeprature and humidity using DHT22
+            ambient_temperature, humidity = dht22_lownoise_measure(dht22)
 
             #Measure hot spot temperature using DS18B20
-            hotspot_temperature = ds18b20.get_temperature()
-            hotspot_temperature = celcius_to_farenheit(hotspot_temperature)
+            hotspot_temperature = 1
+            # hotspot_temperature = ds18b20.get_temperature()
+            # hotspot_temperature = celcius_to_farenheit(hotspot_temperature)
 
-            #Measure ambient humidity using DHT22
-            humidity = dht22.humidity
+
 
             #Evaluate measured temperature and humidity
             #If measured value(s) outside of set range, make appropriate response
-            if temperature <= min_temperature and temp_control.state == False:
+            if ambient_temperature <= min_temperature and temp_control.state == False:
                 temp_control.turnOn()
-            elif temperature >= max_temperature and temp_control.state == True:
+            elif ambient_temperature >= max_temperature and temp_control.state == True:
                 temp_control.turnOff()
             else:
                 pass
